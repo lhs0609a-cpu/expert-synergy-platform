@@ -247,7 +247,8 @@ export default function ExpertsPage() {
                       name={expert.name}
                       src={expert.image}
                       size="xl"
-                      showOnline
+                      showOnlineStatus
+                      isOnline
                     />
                     <div>
                       <div className="flex items-center gap-2">

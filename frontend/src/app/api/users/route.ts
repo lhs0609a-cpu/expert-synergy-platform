@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authConfig } from '@/server/auth/config';
+import { auth } from '@/server/auth';
 import { prisma } from '@/server/db/client';
 
 // GET /api/users - 현재 로그인한 사용자 정보 조회
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authConfig);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -22,26 +21,27 @@ export async function GET(request: NextRequest) {
         name: true,
         email: true,
         nickname: true,
-        image: true,
-        bio: true,
+        profileImage: true,
         role: true,
         isExpert: true,
+        status: true,
         createdAt: true,
         expertProfile: {
           select: {
             id: true,
             title: true,
-            company: true,
+            bio: true,
+            primaryField: true,
             hourlyRate: true,
             isVerified: true,
-            rating: true,
-            reviewCount: true,
+            averageRating: true,
+            totalReviews: true,
           },
         },
         _count: {
           select: {
             followers: true,
-            following: true,
+            follows: true,
             posts: true,
           },
         },
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
 // PATCH /api/users - 사용자 정보 수정
 export async function PATCH(request: NextRequest) {
   try {
-    const session = await getServerSession(authConfig);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -78,7 +78,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, nickname, bio, image } = body;
+    const { name, nickname, profileImage } = body;
 
     // 닉네임 중복 체크
     if (nickname) {
@@ -102,18 +102,17 @@ export async function PATCH(request: NextRequest) {
       data: {
         ...(name && { name }),
         ...(nickname && { nickname }),
-        ...(bio !== undefined && { bio }),
-        ...(image && { image }),
+        ...(profileImage && { profileImage }),
       },
       select: {
         id: true,
         name: true,
         email: true,
         nickname: true,
-        image: true,
-        bio: true,
+        profileImage: true,
         role: true,
         isExpert: true,
+        status: true,
       },
     });
 

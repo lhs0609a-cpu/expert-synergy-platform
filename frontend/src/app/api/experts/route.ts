@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/server/db/client';
+import { Prisma } from '@prisma/client';
 
 // GET /api/experts - 전문가 목록 조회
 export async function GET(request: NextRequest) {
@@ -17,45 +18,38 @@ export async function GET(request: NextRequest) {
     const skip = (page - 1) * limit;
 
     // 필터 조건 구성
-    const where: any = {
+    const where: Prisma.ExpertProfileWhereInput = {
       isVerified: true,
     };
 
     if (category && category !== 'all') {
-      where.skills = {
-        some: {
-          category: {
-            slug: category,
-          },
-        },
-      };
+      where.primaryField = category;
     }
 
     if (search) {
       where.OR = [
         { user: { name: { contains: search, mode: 'insensitive' } } },
         { title: { contains: search, mode: 'insensitive' } },
-        { company: { contains: search, mode: 'insensitive' } },
-        { skills: { some: { name: { contains: search, mode: 'insensitive' } } } },
+        { bio: { contains: search, mode: 'insensitive' } },
       ];
     }
 
     if (minRate) {
-      where.hourlyRate = { ...where.hourlyRate, gte: parseInt(minRate) };
+      where.hourlyRate = { ...where.hourlyRate as object, gte: parseInt(minRate) };
     }
 
     if (maxRate) {
-      where.hourlyRate = { ...where.hourlyRate, lte: parseInt(maxRate) };
+      where.hourlyRate = { ...where.hourlyRate as object, lte: parseInt(maxRate) };
     }
 
     // 정렬 조건 구성
-    let orderBy: any = {};
+    let orderBy: Prisma.ExpertProfileOrderByWithRelationInput | Prisma.ExpertProfileOrderByWithRelationInput[] = {};
     switch (sort) {
       case 'rating':
-        orderBy = { rating: 'desc' };
+        orderBy = { averageRating: 'desc' };
         break;
       case 'reviews':
-        orderBy = { reviewCount: 'desc' };
+        orderBy = { totalReviews: 'desc' };
         break;
       case 'price-low':
         orderBy = { hourlyRate: 'asc' };
@@ -64,7 +58,7 @@ export async function GET(request: NextRequest) {
         orderBy = { hourlyRate: 'desc' };
         break;
       default: // popular
-        orderBy = [{ reviewCount: 'desc' }, { rating: 'desc' }];
+        orderBy = [{ totalReviews: 'desc' }, { averageRating: 'desc' }];
     }
 
     const [experts, total] = await Promise.all([
@@ -76,19 +70,19 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           title: true,
-          company: true,
-          location: true,
           bio: true,
+          primaryField: true,
           hourlyRate: true,
           isVerified: true,
-          rating: true,
-          reviewCount: true,
+          averageRating: true,
+          totalReviews: true,
           responseTime: true,
+          slug: true,
           user: {
             select: {
               id: true,
               name: true,
-              image: true,
+              profileImage: true,
             },
           },
           skills: {
@@ -96,13 +90,6 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               name: true,
-            },
-          },
-          _count: {
-            select: {
-              mentorSessions: {
-                where: { status: 'COMPLETED' },
-              },
             },
           },
         },

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authConfig } from '@/server/auth/config';
+import { auth } from '@/server/auth';
 import { prisma } from '@/server/db/client';
+import { Prisma } from '@prisma/client';
 
 // GET /api/mentoring - 멘토링 세션 목록 조회
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authConfig);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -23,26 +23,24 @@ export async function GET(request: NextRequest) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.MentoringSessionWhereInput = {};
 
-    // 역할에 따른 필터링
+    // 역할에 따른 필터링 (mentor와 mentee는 모두 User를 참조)
     if (role === 'mentor') {
-      where.mentor = {
-        userId: session.user.id,
-      };
+      where.mentorId = session.user.id;
     } else if (role === 'mentee') {
       where.menteeId = session.user.id;
     } else {
       // 기본: 멘토 또는 멘티로 참여한 모든 세션
       where.OR = [
-        { mentor: { userId: session.user.id } },
+        { mentorId: session.user.id },
         { menteeId: session.user.id },
       ];
     }
 
     // 상태 필터링
     if (status) {
-      where.status = status.toUpperCase();
+      where.status = status.toUpperCase() as Prisma.EnumMentoringStatusFilter;
     }
 
     const [sessions, total] = await Promise.all([
@@ -54,22 +52,22 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           title: true,
-          topic: true,
+          description: true,
+          type: true,
           scheduledAt: true,
           duration: true,
           price: true,
           status: true,
-          meetingType: true,
           meetingUrl: true,
           mentor: {
             select: {
               id: true,
-              title: true,
-              user: {
+              name: true,
+              profileImage: true,
+              expertProfile: {
                 select: {
-                  id: true,
-                  name: true,
-                  image: true,
+                  title: true,
+                  primaryField: true,
                 },
               },
             },
@@ -78,12 +76,12 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               name: true,
-              image: true,
+              profileImage: true,
             },
           },
           review: {
             select: {
-              rating: true,
+              overallRating: true,
               content: true,
             },
           },
@@ -113,7 +111,7 @@ export async function GET(request: NextRequest) {
 // POST /api/mentoring - 새 멘토링 세션 요청
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authConfig);
+    const session = await auth();
 
     if (!session?.user?.id) {
       return NextResponse.json(
@@ -123,7 +121,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { mentorId, title, topic, scheduledAt, duration, meetingType } = body;
+    const { mentorId, title, description, scheduledAt, duration, type } = body;
 
     // 필수 필드 검증
     if (!mentorId || !title || !scheduledAt || !duration) {
@@ -133,17 +131,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 멘토 프로필 조회
-    const mentorProfile = await prisma.expertProfile.findUnique({
+    // 멘토 사용자 및 프로필 조회
+    const mentorUser = await prisma.user.findUnique({
       where: { id: mentorId },
       select: {
         id: true,
-        hourlyRate: true,
-        userId: true,
+        expertProfile: {
+          select: {
+            hourlyRate: true,
+          },
+        },
       },
     });
 
-    if (!mentorProfile) {
+    if (!mentorUser) {
       return NextResponse.json(
         { error: '멘토를 찾을 수 없습니다.' },
         { status: 404 }
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 자기 자신에게 멘토링 신청 불가
-    if (mentorProfile.userId === session.user.id) {
+    if (mentorUser.id === session.user.id) {
       return NextResponse.json(
         { error: '자기 자신에게 멘토링을 신청할 수 없습니다.' },
         { status: 400 }
@@ -159,29 +160,30 @@ export async function POST(request: NextRequest) {
     }
 
     // 가격 계산 (시간당 요금 기준)
-    const price = Math.round((mentorProfile.hourlyRate || 0) * (duration / 60));
+    const hourlyRate = mentorUser.expertProfile?.hourlyRate || 0;
+    const price = Math.round(hourlyRate * (duration / 60));
 
     const mentoringSession = await prisma.mentoringSession.create({
       data: {
         mentorId,
         menteeId: session.user.id,
         title,
-        topic: topic || '',
+        description: description || '',
         scheduledAt: new Date(scheduledAt),
         duration,
         price,
-        meetingType: meetingType || 'VIDEO',
-        status: 'PENDING',
+        type: type || 'VIDEO_CALL',
+        status: 'REQUESTED',
       },
       select: {
         id: true,
         title: true,
-        topic: true,
+        description: true,
         scheduledAt: true,
         duration: true,
         price: true,
         status: true,
-        meetingType: true,
+        type: true,
       },
     });
 
